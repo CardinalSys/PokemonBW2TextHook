@@ -1,10 +1,17 @@
-#include "proc.c"
+﻿#include "proc.c"
 #include <iostream>
 #include <iomanip>
 #include <cctype> 
 #include <vector>
 #include <cwctype>
-#include <locale> 
+#include <locale>
+#include <chrono>
+#include <thread>
+#include <algorithm>
+
+int delayms = 1000;
+using namespace std::this_thread;
+using namespace std::chrono;
 
 DWORD_PTR FindPatternSafe(HANDLE hProcess, BYTE* pattern, char* mask, DWORD_PTR start, DWORD_PTR end) { //optimize this when bored
     DWORD_PTR current = start;
@@ -67,54 +74,143 @@ std::string ConvertToUTF8(const std::wstring& wstr) { //Don't ask me how is this
     return utf8str;
 }
 
+bool isAllowed(uint32_t cp) {
+    return
+        // Hiragana (U+3040-U+309F)
+        (cp >= 0x3040 && cp <= 0x309F) ||
+        // Katakana (U+30A0-U+30FF)
+        (cp >= 0x30A0 && cp <= 0x30FF) ||
+        // CJK Unified Ideographs
+        (cp >= 0x4E00 && cp <= 0x9FFF && (
+            // Example: Exclude rare/uncommon kanji blocks
+            !(cp >= 0xE000 && cp <= 0xF8FF)  // Private Use Area (PUA)
+            )) ||
+        // CJK punctuation (e.g., full-width space, 「」)
+        (cp >= 0x3000 && cp <= 0x303F) ||
+        // Full-width punctuation (！, etc.)
+        (cp >= 0xFF00 && cp <= 0xFF0F) ||
+        (cp >= 0xFF1A && cp <= 0xFF1F);
+}
+
+
+std::string cleanString(const std::string& input) {
+    std::string output;
+    size_t i = 0;
+    while (i < input.size()) {
+        uint32_t cp = 0;
+        int bytes = 0;
+
+        // Decode UTF-8
+        if ((input[i] & 0x80) == 0x00) {          // 1-byte
+            cp = input[i];
+            bytes = 1;
+        }
+        else if ((input[i] & 0xE0) == 0xC0) {   // 2-byte
+            cp = ((input[i] & 0x1F) << 6) | (input[i + 1] & 0x3F);
+            bytes = 2;
+        }
+        else if ((input[i] & 0xF0) == 0xE0) {   // 3-byte
+            cp = ((input[i] & 0x0F) << 12) | ((input[i + 1] & 0x3F) << 6) | (input[i + 2] & 0x3F);
+            bytes = 3;
+        }
+        else if ((input[i] & 0xF8) == 0xF0) {   // 4-byte
+            cp = ((input[i] & 0x07) << 18) | ((input[i + 1] & 0x3F) << 12) | ((input[i + 2] & 0x3F) << 6) | (input[i + 3] & 0x3F);
+            bytes = 4;
+        }
+        else {
+            i++;
+            continue;  // Skip invalid bytes
+        }
+
+        // (0xBE01 is interpreted as a line breaker in the BW2 code)
+        if (cp == 0xBE01) {  
+            output += '\n';
+        }
+        else if (isAllowed(cp)) {
+            output.append(input.substr(i, bytes));
+        }
+
+        i += bytes;
+    }
+    return output;
+}
+
+struct Process proc;
+
+DWORD_PTR GetBaseAddress() {
+    //BYTE pattern[] = { 0xA0, 0xF4, 0x64, 0x00, 0xB1, 0x7F, 0x00, 0x00 }; //start game pattern
+    BYTE pattern[] = { 0x80, 0x04, 0x00, 0x00, 0xEC, 0xD2, 0xF8, 0xB6, 0x00, 0x00, 0x00, 0x30 }; //needs more test
+    char mask[] = "xx?xxxxx???x?";
+    DWORD_PTR foundAddress = FindPatternSafe(
+        proc.handle,
+        pattern,
+        mask,
+        0x10000000000,
+        0x3FFFFFFFFFF
+    );
+
+    if(foundAddress == 0){
+        std::cout << "Pattern not found" << std::endl;
+        sleep_for(milliseconds(delayms));
+
+        foundAddress = GetBaseAddress();
+    }
+
+    return foundAddress;
+}
+
 int main(void)
 {
     SetConsoleFont(L"NSimSun");
-    struct Process proc = GetProcessByName("melonDS.exe");
+    proc = GetProcessByName("melonDS.exe");
 
     if (proc.pid != 0) {
         std::cout << "Process hooked" << std::endl;
-        BYTE pattern[] = { 0xA0, 0xF4, 0x64, 0x00, 0xB1, 0x7F, 0x00, 0x00 };
-        //BYTE pattern[] = { 0x00, 0x00, 0x7F, 0xB1, 0x00, 0x64, 0xF4, 0xA0 };
 
-        char mask[] = "xxxxxxxx";
 
-        MODULEINFO modInfo;
-        GetModuleInformation(proc.handle, (HMODULE)proc.hMods[0], &modInfo, sizeof(modInfo));
+        DWORD_PTR foundAddress = GetBaseAddress();
 
-        DWORD_PTR foundAddress = FindPatternSafe(
-            proc.handle,        
-            pattern,            
-            mask,
-            0x20000000000,
-            0x3FFFFFFFFFF
-        );
-
-        if (foundAddress) {
-            std::cout << "Pattern found at: 0x" << std::hex << foundAddress << std::endl;
-
-            BYTE buffer[150];
+        std::cout << "Pattern found at: 0x" << std::hex << foundAddress << std::endl;
+        std::string lastStr;
+        std::cout << "Starting loop" << std::endl;
+        while (true)
+        {
+            sleep_for(milliseconds(delayms));
+            BYTE buffer[500];
             SIZE_T bytesRead;
             if (ReadProcessMemory(proc.handle, (LPCVOID)foundAddress, buffer, sizeof(buffer), &bytesRead)) {
                 if (bytesRead % sizeof(wchar_t) != 0) {
                     std::cerr << "Error: bytesRead is not aligned to wide characters." << std::endl;
                 }
                 else {
+
+
                     size_t numChars = bytesRead / sizeof(wchar_t);
                     std::wstring wstr(reinterpret_cast<wchar_t*>(buffer), numChars);
 
 
                     std::string utf8str = ConvertToUTF8(wstr);
 
-                    SetConsoleOutputCP(CP_UTF8);
+                    if (utf8str == lastStr) {
+                        continue;
+                    }
 
-                    std::cout << "Data: " << utf8str << std::endl;
+
+                    SetConsoleOutputCP(CP_UTF8);
+                    lastStr = utf8str;
+
+                    std::string cleaned = cleanString(utf8str);
+                    std::cout << "---------------------------------------" << std::endl;
+                    std::cout << "Data: " << cleaned << std::endl;
+
+
                 }
             }
             else {
                 std::cerr << "ReadProcessMemory failed. Error: " << GetLastError() << std::endl;
             }
         }
+   
     }
     else {
         std::cout << "Process not found" << std::endl;
