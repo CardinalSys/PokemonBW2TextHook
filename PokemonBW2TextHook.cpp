@@ -8,6 +8,7 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+#include <windows.h>
 
 int delayms = 1000;
 using namespace std::this_thread;
@@ -28,6 +29,27 @@ DWORD_PTR FindPatternSafe(HANDLE hProcess, BYTE* pattern, char* mask, DWORD_PTR 
     }
     return 0;
 }
+
+void CopyToClipboard(const std::string& text) {
+    if (OpenClipboard(nullptr)) {
+        EmptyClipboard();
+
+        // Convert UTF-8 to UTF-16
+        int wideSize = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, wideSize * sizeof(wchar_t));
+
+        if (hMem) {
+            wchar_t* pMem = static_cast<wchar_t*>(GlobalLock(hMem));
+            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, pMem, wideSize);
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+        }
+
+        CloseClipboard();
+        GlobalFree(hMem);
+    }
+}
+
 
 void SetConsoleFont(const std::wstring& fontName) {
     HKEY hKey;
@@ -172,7 +194,8 @@ int main(void)
 
         std::cout << "Pattern found at: 0x" << std::hex << foundAddress << std::endl;
         std::string lastStr;
-        std::cout << "Starting loop" << std::endl;
+        std::cout << "Starting loop (Text auto-copied to clipboard)" << std::endl;
+        std::cout << "Use Win+V to paste history or Ctrl+V to paste latest" << std::endl;
         while (true)
         {
             sleep_for(milliseconds(delayms));
@@ -200,6 +223,7 @@ int main(void)
                     lastStr = utf8str;
 
                     std::string cleaned = cleanString(utf8str);
+                    CopyToClipboard(cleaned);
                     std::cout << "---------------------------------------" << std::endl;
                     std::cout << "Data: " << cleaned << std::endl;
 
