@@ -96,6 +96,7 @@ std::string ConvertToUTF8(const std::wstring& wstr) { //Don't ask me how is this
     return utf8str;
 }
 
+
 bool isAllowed(uint32_t cp) {
     return
         // Hiragana (U+3040-U+309F)
@@ -103,10 +104,7 @@ bool isAllowed(uint32_t cp) {
         // Katakana (U+30A0-U+30FF)
         (cp >= 0x30A0 && cp <= 0x30FF) ||
         // CJK Unified Ideographs
-        (cp >= 0x4E00 && cp <= 0x9FFF && (
-            // Example: Exclude rare/uncommon kanji blocks
-            !(cp >= 0xE000 && cp <= 0xF8FF)  // Private Use Area (PUA)
-            )) ||
+        (cp >= 0x4E00 && cp <= 0x9FFF) ||
         // CJK punctuation (e.g., full-width space, 「」)
         (cp >= 0x3000 && cp <= 0x303F) ||
         // Full-width punctuation (！, etc.)
@@ -118,6 +116,9 @@ bool isAllowed(uint32_t cp) {
 std::string cleanString(const std::string& input) {
     std::string output;
     size_t i = 0;
+
+    int consecutiveKanji = 0;
+    
     while (i < input.size()) {
         uint32_t cp = 0;
         int bytes = 0;
@@ -141,7 +142,7 @@ std::string cleanString(const std::string& input) {
         }
         else {
             i++;
-            continue;  // Skip invalid bytes
+            continue;
         }
 
         // (0xBE01 is interpreted as a line breaker in the BW2 code)
@@ -149,7 +150,21 @@ std::string cleanString(const std::string& input) {
             output += '\n';
         }
         else if (isAllowed(cp)) {
-            output.append(input.substr(i, bytes));
+            if (cp >= 0x4E00 && cp <= 0x9FFF) {
+                consecutiveKanji++;
+                if (consecutiveKanji >= 5) { // Require at least 2 consecutive kanji
+                    output.resize(output.size() - 12);
+                    break;
+                }
+                else {
+                    output.append(input.substr(i, bytes));
+                }
+            }
+            else {
+                output.append(input.substr(i, bytes));
+                consecutiveKanji = 0;
+            }
+   
         }
 
         i += bytes;
@@ -214,15 +229,16 @@ int main(void)
 
                     std::string utf8str = ConvertToUTF8(wstr);
 
-                    if (utf8str == lastStr) {
-                        continue;
-                    }
 
 
                     SetConsoleOutputCP(CP_UTF8);
-                    lastStr = utf8str;
+
 
                     std::string cleaned = cleanString(utf8str);
+                    if (lastStr == cleaned) {
+                        continue;
+                    }
+                    lastStr = cleaned;
                     CopyToClipboard(cleaned);
                     std::cout << "---------------------------------------" << std::endl;
                     std::cout << "Data: " << cleaned << std::endl;
