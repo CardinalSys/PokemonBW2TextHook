@@ -99,6 +99,7 @@ std::string ConvertToUTF8(const std::wstring& wstr) { //Don't ask me how is this
 
 bool isAllowed(uint32_t cp) {
     return
+
         // Hiragana (U+3040-U+309F)
         (cp >= 0x3040 && cp <= 0x309F) ||
         // Katakana (U+30A0-U+30FF)
@@ -112,6 +113,12 @@ bool isAllowed(uint32_t cp) {
         (cp >= 0xFF1A && cp <= 0xFF1F);
 }
 
+void removeUnwanted(std::string& output, const std::string& unwanted) {
+    size_t pos = 0;
+    while ((pos = output.find(unwanted, pos)) != std::string::npos) {
+        output.erase(pos, unwanted.size());
+    }
+}
 
 std::string cleanString(const std::string& input) {
     std::string output;
@@ -145,14 +152,14 @@ std::string cleanString(const std::string& input) {
             continue;
         }
 
-        // (0xBE01 is interpreted as a line breaker in the BW2 code)
+        // (0xBE01 is interpreted as a line breaker in the BW2 code) I should probably use this for sentences array
         if (cp == 0xBE01) {  
             output += '\n';
         }
         else if (isAllowed(cp)) {
             if (cp >= 0x4E00 && cp <= 0x9FFF) {
                 consecutiveKanji++;
-                if (consecutiveKanji >= 5) { // Require at least 2 consecutive kanji
+                if (consecutiveKanji >= 6) { // More than 5 consecutive kanji proably is not a real word
                     output.resize(output.size() - 12);
                     break;
                 }
@@ -169,6 +176,12 @@ std::string cleanString(const std::string& input) {
 
         i += bytes;
     }
+
+    std::vector<std::string> unwanted = { u8"弄", u8"怄", u8"怀", u8"笀", u8"杷", u8"莃"};
+
+    for (const auto& ch : unwanted) {
+        removeUnwanted(output, ch);
+    }
     return output;
 }
 
@@ -176,8 +189,9 @@ struct Process proc;
 
 DWORD_PTR GetBaseAddress() {
     //BYTE pattern[] = { 0xA0, 0xF4, 0x64, 0x00, 0xB1, 0x7F, 0x00, 0x00 }; //start game pattern
-    BYTE pattern[] = { 0x80, 0x04, 0x00, 0x00, 0xEC, 0xD2, 0xF8, 0xB6, 0x00, 0x00, 0x00, 0x30 }; //needs more test
-    char mask[] = "xx?xxxxx???x?";
+
+    BYTE pattern[] = {0xFB, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30 }; //needs more test
+    char mask[] = "xxx?x???????x";
     DWORD_PTR foundAddress = FindPatternSafe(
         proc.handle,
         pattern,
@@ -185,7 +199,7 @@ DWORD_PTR GetBaseAddress() {
         0x10000000000,
         0x3FFFFFFFFFF
     );
-
+    foundAddress += 1;
     if(foundAddress == 0){
         std::cout << "Pattern not found" << std::endl;
         sleep_for(milliseconds(delayms));
@@ -238,6 +252,9 @@ int main(void)
                     if (lastStr == cleaned) {
                         continue;
                     }
+
+
+
                     lastStr = cleaned;
                     CopyToClipboard(cleaned);
                     std::cout << "---------------------------------------" << std::endl;
