@@ -134,6 +134,11 @@ class Program
             currentAddress = (UInt64)mbi.BaseAddress.ToInt64() + (UInt64)mbi.RegionSize;
         }
 
+        if(foundAddress == 0)
+        {
+            foundAddress = AoBScan(proc, baseAddressPattern, "xxx?xxxxx???????x");
+        }
+
         return foundAddress;
 
     }
@@ -154,8 +159,7 @@ class Program
 
 
         if (baseAddress == 0)
-        {
-            
+        {     
             Console.WriteLine("Pattern not found.");
         }
         else
@@ -181,7 +185,7 @@ class Program
 
                     
 
-                    if (text != lastString)
+                    if (text != lastString && text != "")
                     {
                         lastString = text;
 
