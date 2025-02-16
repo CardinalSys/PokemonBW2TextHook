@@ -134,20 +134,67 @@ class Program
             currentAddress = (UInt64)mbi.BaseAddress.ToInt64() + (UInt64)mbi.RegionSize;
         }
 
-        if(foundAddress == 0)
-        {
-            foundAddress = AoBScan(proc, baseAddressPattern, "xxx?xxxxx???????x");
-        }
 
         return foundAddress;
 
     }
 
     static byte[] baseAddressPattern = new byte[] { 0xFB, 0x80, 0x04, 0xFF, 0x00, 0xEC, 0xD2, 0xF8, 0xB6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x30 };
+    static string baseAddressMask = "xxx?xxxxx???????x";
 
     static byte[] combatAddressPattern = new byte[] { 0x80, 0x01, 0x0C, 0x00, 0xEC, 0xD2, 0xF8, 0xB6}; //To test
+    static string combatAddressMask = "xxxxxxxx";
 
-   
+
+    static UInt64 GetCurrentAddress(Process proc)
+    {
+        UInt64 currentAddress = 0;
+
+        while(currentAddress == 0)
+        {
+            currentAddress = AoBScan(proc, baseAddressPattern, baseAddressMask);
+
+            if(currentAddress != 0)
+            {
+                Console.WriteLine("Text address found");
+                break;
+            }
+            else
+            {
+                Console.WriteLine("Text address not found, talk to a NPC first");
+            }
+
+            currentAddress = AoBScan(proc, combatAddressPattern, combatAddressMask);
+            if (currentAddress != 0)
+            {
+                byte[] buffer = new byte[32];
+                if (ReadProcessMemory(proc.Handle, (nint)(currentAddress + 9), buffer, 32, out UIntPtr bytesRead))
+                {
+                    if (buffer[0] == 0)
+                    {
+                        Console.WriteLine("Combat address found, but currently not in combat");
+                        currentAddress = 0;
+                    }
+                    else
+                    {
+                        break;
+                    }
+
+                }
+            }
+            else
+            {
+                Console.WriteLine("Combat address not found, restart the game and hope it fixes by itself");
+            }
+
+
+
+            Thread.Sleep(5000);
+        }
+
+        return currentAddress + 9;
+
+    }
 
     static void Main(string[] args)
     {
@@ -155,55 +202,45 @@ class Program
         ChangeFont.SetConsoleFont("NSimSun");
         Process proc = HookProcess();
 
-        UInt64 baseAddress = AoBScan(proc, baseAddressPattern, "xxx?xxxxx???????x");
+        UInt64 baseAddress = GetCurrentAddress(proc);
 
-
-        if (baseAddress == 0)
-        {     
-            Console.WriteLine("Pattern not found.");
-        }
-        else
+        Console.OutputEncoding = Encoding.UTF8;
+        string lastString = " ";
+        while (true)
         {
-            Console.OutputEncoding = Encoding.UTF8;
-            string lastString = " ";
-            while (true)
+            byte[] buffer = new byte[500];
+            if (ReadProcessMemory(proc.Handle, (nint)baseAddress, buffer, 500, out UIntPtr bytesRead))
             {
-                byte[] buffer = new byte[500];
-                if (ReadProcessMemory(proc.Handle, (nint)(baseAddress + 9), buffer, 500, out UIntPtr bytesRead))
+                byte[] emptyBuffer = new byte[500];
+                WriteProcessMemory(proc.Handle, (nint)baseAddress, emptyBuffer, 500, out UIntPtr bytesWritten);
+
+                string text = Encoding.Unicode.GetString(buffer, 0, (int)bytesRead);
+
+                Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+                string regpattern = @"[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF\s\p{P}]";
+                text = Regex.Replace(text, regpattern, "");
+                string kanjiPattern = @"[\p{IsCJKUnifiedIdeographs}\uAC00-\uD7AF]{5,}";
+                text = Regex.Replace(text, kanjiPattern, "");
+                text = text.Replace("븁", "\n");
+
+
+
+                if (text != lastString && text != "")
                 {
-                    byte[] emptyBuffer = new byte[500];
-                    WriteProcessMemory(proc.Handle, (nint)(baseAddress + 9), emptyBuffer, 500, out UIntPtr bytesWritten);
+                    lastString = text;
 
-                    string text = Encoding.Unicode.GetString(buffer, 0, (int)bytesRead);
+                    Console.WriteLine("----------------------------------");
+                    Console.WriteLine(text);
+                    CopyToClipboard(text);
 
-                    Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-                    string regpattern = @"[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF\s\p{P}]";
-                    text = Regex.Replace(text, regpattern, "");
-                    string kanjiPattern = @"[\p{IsCJKUnifiedIdeographs}\uAC00-\uD7AF]{5,}";
-                    text = Regex.Replace(text, kanjiPattern, "");
-                    text = text.Replace("븁", "\n");
-
-                    
-
-                    if (text != lastString && text != "")
-                    {
-                        lastString = text;
-
-                        Console.WriteLine("----------------------------------");
-                        Console.WriteLine(text);
-                        CopyToClipboard(text);
-
-
-                    }
-                    Thread.Sleep(1000);
 
                 }
+                Thread.Sleep(1000);
+
             }
-
-
         }
 
-        
+
     }
 
 
