@@ -28,6 +28,15 @@ class Program
         out UIntPtr lpNumberOfBytesRead);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool WriteProcessMemory(
+        IntPtr hProcess,
+        IntPtr lpBaseAddress,
+        byte[] lpBuffer,
+        UIntPtr dwSize,
+        out UIntPtr lpNumberOfBytesWritte
+        );
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     static extern UIntPtr VirtualQueryEx(
         IntPtr hProcess,
         IntPtr lpAddress,
@@ -129,44 +138,11 @@ class Program
 
     }
 
-    static byte[] baseAddressPattern = new byte[] { 0xFB, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30 };
-    static byte[] combatAddressPattern = new byte[] { 0xFB, 0x80, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30 }; //To find
+    static byte[] baseAddressPattern = new byte[] { 0xFB, 0x80, 0x04, 0xFF, 0x00, 0xEC, 0xD2, 0xF8, 0xB6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x30 };
 
-    public static string RemoveLargeEqualParts(string text, string lastString, int minLength = 5)
-    {
-        int maxLength = 0; 
-        int textStartIndex = 0;
+    static byte[] combatAddressPattern = new byte[] { 0x80, 0x01, 0x0C, 0x00, 0xEC, 0xD2, 0xF8, 0xB6}; //To test
 
-
-        for (int i = 0; i < text.Length; i++)
-        {
-            for (int j = 0; j < lastString.Length; j++)
-            {
-                int currentLength = 0;
-
-                while (i + currentLength < text.Length &&
-                       j + currentLength < lastString.Length &&
-                       text[i + currentLength] == lastString[j + currentLength])
-                {
-                    currentLength++;
-                }
-
-                if (currentLength > maxLength)
-                {
-                    maxLength = currentLength;
-                    textStartIndex = i;
-                }
-            }
-        }
-
-
-        if (maxLength >= minLength)
-        {
-            text = text.Remove(textStartIndex, maxLength);
-        }
-
-        return text;
-    }
+   
 
     static void Main(string[] args)
     {
@@ -174,8 +150,7 @@ class Program
         ChangeFont.SetConsoleFont("NSimSun");
         Process proc = HookProcess();
 
-
-        UInt64 baseAddress = AoBScan(proc, baseAddressPattern, "xxx?x???????x");
+        UInt64 baseAddress = AoBScan(proc, baseAddressPattern, "xxx?xxxxx???????x");
 
 
         if (baseAddress == 0)
@@ -187,13 +162,14 @@ class Program
         {
             Console.OutputEncoding = Encoding.UTF8;
             string lastString = " ";
-            int oldTextLenght = 0;
             while (true)
             {
                 byte[] buffer = new byte[500];
                 if (ReadProcessMemory(proc.Handle, (nint)(baseAddress + 9), buffer, 500, out UIntPtr bytesRead))
                 {
-                   
+                    byte[] emptyBuffer = new byte[500];
+                    WriteProcessMemory(proc.Handle, (nint)(baseAddress + 9), emptyBuffer, 500, out UIntPtr bytesWritten);
+
                     string text = Encoding.Unicode.GetString(buffer, 0, (int)bytesRead);
 
                     Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
@@ -207,18 +183,11 @@ class Program
 
                     if (text != lastString)
                     {
-
-                        string newText = RemoveLargeEqualParts(text, lastString);
-                        if (oldTextLenght < newText.Length)
-                        {
-                            newText = text;
-                        }
-                        oldTextLenght = newText.Length;
                         lastString = text;
 
                         Console.WriteLine("----------------------------------");
-                        Console.WriteLine(newText);
-                        CopyToClipboard(newText);
+                        Console.WriteLine(text);
+                        CopyToClipboard(text);
 
 
                     }
