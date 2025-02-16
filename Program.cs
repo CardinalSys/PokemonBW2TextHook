@@ -96,13 +96,12 @@ class Program
         return processes[0];
     }
 
-    static UInt64 AoBScan(Process proc, byte[] pattern, string mask)
+    static List<UInt64> AoBScan(Process proc, byte[] pattern, string mask)
     {
-
+        List<UInt64> foundAddresses = new List<UInt64>();
         UInt64 startAddress = 0x10000000000;
         UInt64 endAddress = 0x3FFFFFFFFFF;
         UInt64 currentAddress = startAddress;
-        UInt64 foundAddress = 0;
 
         while (currentAddress < endAddress)
         {
@@ -115,18 +114,19 @@ class Program
             if (mbi.State == MEM_COMMIT && (mbi.Protect & PAGE_GUARD) == 0 && (mbi.Protect & PAGE_NOACCESS) == 0)
             {
                 UInt64 regionStart = (UInt64)mbi.BaseAddress.ToInt64();
-
                 int regionSize = (int)mbi.RegionSize;
                 byte[] buffer = new byte[regionSize];
 
                 if (ReadProcessMemory(proc.Handle, mbi.BaseAddress, buffer, (UIntPtr)regionSize, out UIntPtr bytesRead))
                 {
-                    int index = FindPattern(buffer, pattern, mask);
-                    if (index != -1)
+                    int offset = 0;
+                    while (true)
                     {
-                        foundAddress = regionStart + (UInt64)index;
-                        Console.WriteLine($"Pattern found at: 0x{foundAddress:X}");
-                        break;
+                        int index = FindPattern(buffer, pattern, mask, offset);
+                        if (index == -1)
+                            break;
+                        foundAddresses.Add(regionStart + (UInt64)index);
+                        offset = index + 1;
                     }
                 }
             }
@@ -134,66 +134,137 @@ class Program
             currentAddress = (UInt64)mbi.BaseAddress.ToInt64() + (UInt64)mbi.RegionSize;
         }
 
-
-        return foundAddress;
-
+        return foundAddresses;
     }
 
-    static byte[] baseAddressPattern = new byte[] { 0xFB, 0x80, 0x04, 0xFF, 0x00, 0xEC, 0xD2, 0xF8, 0xB6, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x30 };
-    static string baseAddressMask = "xxx?xxxxx???????x";
+    static string baseAddressAob = "73 74 72 62 75 66 2E 63 00 ?? 00 ?? 00 ?? 00 ?? ?? 00 64 00 ?? ?? 00 ?? 80 04 ?? 00 EC D2 F8 B6";
+    static string combatAddressAoB = "24 80 01 ?? 00 EC D2 F8 B6";
 
-    static byte[] combatAddressPattern = new byte[] { 0x80, 0x01, 0x0C, 0x00, 0xEC, 0xD2, 0xF8, 0xB6}; //To test
-    static string combatAddressMask = "xxxxxxxx";
+    static UInt64 baseAddress;
+    static UInt64 combatAddress;
 
+
+    static bool combat = false;
 
     static UInt64 GetCurrentAddress(Process proc)
     {
         UInt64 currentAddress = 0;
 
-        while(currentAddress == 0)
+        var (basePattern, baseMask) = ParseAoB(baseAddressAob);
+        var (combatPattern, combatMask) = ParseAoB(combatAddressAoB);
+
+        while (currentAddress == 0)
         {
-            currentAddress = AoBScan(proc, baseAddressPattern, baseAddressMask);
-
-            if(currentAddress != 0)
+            if (combatAddress == 0)
             {
-                Console.WriteLine("Text address found");
-                break;
-            }
-            else
-            {
-                Console.WriteLine("Text address not found, talk to a NPC first");
-            }
-
-            currentAddress = AoBScan(proc, combatAddressPattern, combatAddressMask);
-            if (currentAddress != 0)
-            {
-                byte[] buffer = new byte[32];
-                if (ReadProcessMemory(proc.Handle, (nint)(currentAddress + 9), buffer, 32, out UIntPtr bytesRead))
+                var combatAddresses = AoBScan(proc, combatPattern, combatMask);
+                if (combatAddresses.Count > 0)
                 {
-                    if (buffer[0] == 0)
+                    foreach (var addr in combatAddresses)
                     {
-                        Console.WriteLine("Combat address found, but currently not in combat");
-                        currentAddress = 0;
+                        byte[] buffer = new byte[1];
+                        if (ReadProcessMemory(proc.Handle, (IntPtr)(addr + 10), buffer, 1, out _) && buffer[0] != 0)
+                        {
+                            combat = true;
+                            currentAddress = addr + 9;
+                            combatAddress = currentAddress;
+                            break;
+                        }
                     }
-                    else
-                    {
-                        break;
-                    }
-
                 }
             }
             else
             {
-                Console.WriteLine("Combat address not found, restart the game and hope it fixes by itself");
+                byte[] buffer = new byte[1];
+                if (ReadProcessMemory(proc.Handle, (IntPtr)(combatAddress-6), buffer, 1, out _) && buffer[0] != 0)
+                {
+                    combat = true;
+                    currentAddress = combatAddress;
+                    break;
+                }
+                else
+                {
+                    combatAddress = 0;
+                }
             }
+
+            if (baseAddress == 0)
+            {
+                var baseAddresses = AoBScan(proc, basePattern, baseMask);
+                if (baseAddresses.Count > 0)
+                {
+                    foreach (var addr in baseAddresses)
+                    {
+                        byte[] buffer = new byte[1];
+                        if (ReadProcessMemory(proc.Handle, (IntPtr)(addr + 32), buffer, 1, out _) && buffer[0] != 0)
+                        {
+                            combat = false;
+                            currentAddress = addr + 32;
+                            baseAddress = currentAddress;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                byte[] buffer = new byte[1];
+                if (ReadProcessMemory(proc.Handle, (IntPtr)baseAddress, buffer, 1, out _) && buffer[0] != 0)
+                {
+                    combat = false;
+                    currentAddress = baseAddress;
+                    break;
+                }
+                else
+                {
+                    baseAddress = 0;
+                }
+            }
+
 
 
 
             Thread.Sleep(5000);
         }
 
-        return currentAddress + 9;
+        return currentAddress;
+    }
 
+    public static string RemoveLargeEqualParts(string text, string lastString, int minLength = 5)
+    {
+        int maxLength = 0;
+        int textStartIndex = 0;
+
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            for (int j = 0; j < lastString.Length; j++)
+            {
+                int currentLength = 0;
+
+                while (i + currentLength < text.Length &&
+                       j + currentLength < lastString.Length &&
+                       text[i + currentLength] == lastString[j + currentLength])
+                {
+                    currentLength++;
+                }
+
+                if (currentLength > maxLength)
+                {
+                    maxLength = currentLength;
+                    textStartIndex = i;
+                }
+            }
+        }
+
+
+
+        if (maxLength >= minLength)
+        {
+            text = text.Remove(textStartIndex, maxLength);
+        }
+
+        return text;
     }
 
     static void Main(string[] args)
@@ -206,13 +277,14 @@ class Program
 
         Console.OutputEncoding = Encoding.UTF8;
         string lastString = " ";
+        long startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        int oldTextLenght = 0;
         while (true)
-        {
+        {          
             byte[] buffer = new byte[500];
             if (ReadProcessMemory(proc.Handle, (nint)baseAddress, buffer, 500, out UIntPtr bytesRead))
             {
                 byte[] emptyBuffer = new byte[500];
-                WriteProcessMemory(proc.Handle, (nint)baseAddress, emptyBuffer, 500, out UIntPtr bytesWritten);
 
                 string text = Encoding.Unicode.GetString(buffer, 0, (int)bytesRead);
 
@@ -225,28 +297,57 @@ class Program
 
 
 
-                if (text != lastString && text != "")
+                if (text != lastString)
                 {
+
+                    string newText = RemoveLargeEqualParts(text, lastString);
+                    if (oldTextLenght < newText.Length)
+                    {
+                        newText = text;
+                    }
+                    oldTextLenght = newText.Length;
                     lastString = text;
 
                     Console.WriteLine("----------------------------------");
-                    Console.WriteLine(text);
-                    CopyToClipboard(text);
+                    Console.WriteLine(newText);
+                    CopyToClipboard(newText);
 
 
                 }
                 Thread.Sleep(1000);
-
+                baseAddress = GetCurrentAddress(proc);
             }
         }
 
 
     }
 
-
-    static int FindPattern(byte[] data, byte[] pattern, string mask)
+    static (byte[] pattern, string mask) ParseAoB(string aob)
     {
-        for (int i = 0; i <= data.Length - pattern.Length; i++)
+        List<byte> pattern = new List<byte>();
+        StringBuilder mask = new StringBuilder();
+
+        string[] tokens = aob.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (string token in tokens)
+        {
+            if (token == "??")
+            {
+                pattern.Add(0x00);
+                mask.Append('?');
+            }
+            else
+            {
+                pattern.Add(Convert.ToByte(token, 16));
+                mask.Append('x');
+            }
+        }
+
+        return (pattern.ToArray(), mask.ToString());
+    }
+
+    static int FindPattern(byte[] data, byte[] pattern, string mask, int startIndex = 0)
+    {
+        for (int i = startIndex; i <= data.Length - pattern.Length; i++)
         {
             bool match = true;
             for (int j = 0; j < pattern.Length; j++)
