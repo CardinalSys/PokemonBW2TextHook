@@ -139,9 +139,13 @@ class Program
 
     static string baseAddressAob = "73 74 72 62 75 66 2E 63 00 ?? 00 ?? 00 ?? 00 ?? ?? 00 64 00 ?? ?? 00 ?? 80 04 ?? 00 EC D2 F8 B6";
     static string combatAddressAoB = "24 80 01 ?? 00 EC D2 F8 B6";
+    static string cGearAddressAoB = "73 74 72 62 75 66 2E 63 00 00 00 00 4C 0C"; //To test
+    static string isUsingCGearA0B = "?? 01 81 00 00 02 98 00 00 02 0D 00 08 02 98 00 00 02 08 00";
 
     static UInt64 baseAddress;
     static UInt64 combatAddress;
+    static UInt64 cGearAddress;
+    static UInt64 isUsingCGearAddress;
 
 
     static bool combat = false;
@@ -152,10 +156,60 @@ class Program
 
         var (basePattern, baseMask) = ParseAoB(baseAddressAob);
         var (combatPattern, combatMask) = ParseAoB(combatAddressAoB);
+        var (cGearPattern, cGearMask) = ParseAoB(cGearAddressAoB);
 
         while (currentAddress == 0)
         {
-            if (combatAddress == 0)
+            byte[] cbuffer = new byte[1];
+            if (ReadProcessMemory(proc.Handle, (IntPtr)(isUsingCGearAddress), cbuffer, 1, out _))
+            {
+                if (cbuffer[0] == 1)
+                {
+                    if (cGearAddress == 0)
+                    {
+
+                        var cGearAddresses = AoBScan(proc, cGearPattern, cGearMask);
+                        if (cGearAddresses.Count > 0)
+                        {
+                            byte[] buffer = new byte[100];
+                            if (ReadProcessMemory(proc.Handle, (IntPtr)(cGearAddresses[0] + 32), buffer, 100, out _))
+                            {
+                                currentAddress = cGearAddresses[0] + 32;
+                                cGearAddress = cGearAddresses[0] + 32;
+                                break;
+                            }
+                        }
+
+
+
+                    }
+                    else
+                    {
+
+                        byte[] buffer = new byte[100];
+                        if (ReadProcessMemory(proc.Handle, (IntPtr)cGearAddress, buffer, 100, out _))
+                        {
+                            string pattern = @"\p{IsHiragana}";
+                            Regex rgx = new Regex(pattern);
+                            if (rgx.IsMatch(Encoding.GetEncoding("UTF-16LE").GetString(buffer)))
+                            {
+                                currentAddress = cGearAddress;
+                                break;
+                            }
+                            else
+                            {
+                                cGearAddress = 0;
+                            }
+                        }
+                        else
+                        {
+                            cGearAddress = 0;
+                        }
+                    }
+                }
+            }
+
+                if (combatAddress == 0)
             {
                 var combatAddresses = AoBScan(proc, combatPattern, combatMask);
                 if (combatAddresses.Count > 0)
@@ -242,7 +296,11 @@ class Program
         Console.OutputEncoding = Encoding.UTF8;
         string lastString = " ";
         long startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
-        int oldTextLenght = 0;
+
+        var (usingCGearPattern, usingCGearMask) = ParseAoB(isUsingCGearA0B);
+
+        isUsingCGearAddress = AoBScan(proc, usingCGearPattern, usingCGearMask).First();
+
         while (true)
         {          
             byte[] buffer = new byte[500];
@@ -253,12 +311,14 @@ class Program
                 string text = Encoding.GetEncoding("UTF-16LE").GetString(buffer, 0, (int)bytesRead);
 
                 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
+                text = text.Replace("\0", "");
                 text = text.Replace("븁", "\n");
 
                 text = text.Split("￿")[0];
+                text = text.Replace("", "");
 
-
+                text = text.Replace("븀", "\n");
+                text = text.Replace("￾", " ");
                 if (text != lastString)
                 {
                     lastString = text;
