@@ -230,41 +230,6 @@ class Program
         return currentAddress;
     }
 
-    public static string RemoveLargeEqualParts(string text, string lastString, int minLength = 5)
-    {
-        int maxLength = 0;
-        int textStartIndex = 0;
-
-
-        for (int i = 0; i < text.Length; i++)
-        {
-            for (int j = 0; j < lastString.Length; j++)
-            {
-                int currentLength = 0;
-
-                while (i + currentLength < text.Length &&
-                       j + currentLength < lastString.Length &&
-                       text[i + currentLength] == lastString[j + currentLength])
-                {
-                    currentLength++;
-                }
-
-                if (currentLength > maxLength)
-                {
-                    maxLength = currentLength;
-                    textStartIndex = i;
-                }
-            }
-        }
-
-
-        if (maxLength >= minLength)
-        {
-            text = text.Remove(textStartIndex, maxLength);
-        }
-
-        return text;
-    }
 
     static void Main(string[] args)
     {
@@ -285,33 +250,21 @@ class Program
             {
                 byte[] emptyBuffer = new byte[500];
 
-                string text = Encoding.Unicode.GetString(buffer, 0, (int)bytesRead);
+                string text = Encoding.GetEncoding("UTF-16LE").GetString(buffer, 0, (int)bytesRead);
 
                 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-                string regpattern = @"[^\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF\uFF00-\uFFEF\s\p{P}]";
-                text = Regex.Replace(text, regpattern, "");
-                string kanjiPattern = @"[\p{IsCJKUnifiedIdeographs}\uAC00-\uD7AF]{5,}";
-                text = Regex.Replace(text, kanjiPattern, "");
+
                 text = text.Replace("븁", "\n");
 
+                text = text.Split("￿")[0];
 
 
                 if (text != lastString)
                 {
-
-                    string newText = RemoveLargeEqualParts(text, lastString);
-                    if (oldTextLenght < newText.Length)
-                    {
-                        newText = text;
-                    }
-                    oldTextLenght = newText.Length;
                     lastString = text;
-
                     Console.WriteLine("----------------------------------");
-                    Console.WriteLine(newText);
-                    CopyToClipboard(newText);
-
-
+                    Console.WriteLine(text);
+                    CopyToClipboard(text);
                 }
                 Thread.Sleep(500);
 
