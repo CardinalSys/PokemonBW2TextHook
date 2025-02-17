@@ -258,7 +258,6 @@ class Program
         }
 
 
-
         if (maxLength >= minLength)
         {
             text = text.Remove(textStartIndex, maxLength);
@@ -314,7 +313,8 @@ class Program
 
 
                 }
-                Thread.Sleep(1000);
+                Thread.Sleep(500);
+
                 baseAddress = GetCurrentAddress(proc);
             }
         }
