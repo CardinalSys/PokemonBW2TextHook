@@ -103,30 +103,37 @@ class Program
         UInt64 endAddress = 0x3FFFFFFFFFF;
         UInt64 currentAddress = startAddress;
 
+        const int CHUNK_SIZE = 4096;
+        byte[] buffer = new byte[CHUNK_SIZE];
+
         while (currentAddress < endAddress)
         {
             MEMORY_BASIC_INFORMATION mbi;
             UIntPtr mbiSize = (UIntPtr)Marshal.SizeOf(typeof(MEMORY_BASIC_INFORMATION));
             UIntPtr result = VirtualQueryEx(proc.Handle, new IntPtr((long)currentAddress), out mbi, mbiSize);
-            if (result == UIntPtr.Zero)
-                break;
+            if (result == UIntPtr.Zero) break;
 
             if (mbi.State == MEM_COMMIT && (mbi.Protect & PAGE_GUARD) == 0 && (mbi.Protect & PAGE_NOACCESS) == 0)
             {
                 UInt64 regionStart = (UInt64)mbi.BaseAddress.ToInt64();
-                int regionSize = (int)mbi.RegionSize;
-                byte[] buffer = new byte[regionSize];
+                UInt64 regionSize = (UInt64)mbi.RegionSize;
+                UInt64 regionEnd = regionStart + regionSize;
 
-                if (ReadProcessMemory(proc.Handle, mbi.BaseAddress, buffer, (UIntPtr)regionSize, out UIntPtr bytesRead))
+                for (UInt64 offset = 0; offset < regionSize; offset += CHUNK_SIZE)
                 {
-                    int offset = 0;
-                    while (true)
+                    IntPtr readAddress = new IntPtr((long)(regionStart + offset));
+                    int bytesToRead = (int)Math.Min(CHUNK_SIZE, regionSize - offset);
+
+                    if (ReadProcessMemory(proc.Handle, readAddress, buffer, (UIntPtr)bytesToRead, out UIntPtr bytesRead))
                     {
-                        int index = FindPattern(buffer, pattern, mask, offset);
-                        if (index == -1)
-                            break;
-                        foundAddresses.Add(regionStart + (UInt64)index);
-                        offset = index + 1;
+                        int baseOffset = 0;
+                        while (baseOffset <= bytesToRead - pattern.Length)
+                        {
+                            int index = FindPattern(buffer, pattern, mask, baseOffset);
+                            if (index == -1) break;
+                            foundAddresses.Add(regionStart + offset + (UInt64)index);
+                            baseOffset = index + 1;
+                        }
                     }
                 }
             }
