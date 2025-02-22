@@ -99,8 +99,8 @@ class Program
     static List<UInt64> AoBScan(Process proc, byte[] pattern, string mask)
     {
         List<UInt64> foundAddresses = new List<UInt64>();
-        UInt64 startAddress = 0x10000000000;
-        UInt64 endAddress = 0x3FFFFFFFFFF;
+        UInt64 startAddress = 0x20000000000;
+        UInt64 endAddress = 0x30000000000;
         UInt64 currentAddress = startAddress;
 
         const int CHUNK_SIZE = 4096;
@@ -144,103 +144,36 @@ class Program
         return foundAddresses;
     }
 
-    static string baseAddressAob = "73 74 72 62 75 66 2E 63 00 ?? 00 ?? 00 ?? 00 ?? ?? 00 64 00 ?? ?? 00 ?? 80 04 ?? 00 EC D2 F8 B6";
-    static string combatAddressAoB = "24 80 01 ?? 00 EC D2 F8 B6";
+    static string baseAddressAob = "28 ?? 00 00 ?? ?? ?? 02 ?? ?? ?? 02 ?? 00 4E 19 73 74 72 62 75 66 2E 63 00 ?? 00 ?? ?? ?? ?? ?? ?? 00 64 00 ?? ?? 00 ?? 80 ?? ?? 00 EC D2 F8 B6";
 
     static UInt64 baseAddress;
-    static UInt64 combatAddress;
-    static UInt64 cGearAddress;
+    static UInt64 lastAddress;
 
 
     static bool combat = false;
 
     static UInt64 GetCurrentAddress(Process proc)
     {
-        UInt64 currentAddress = 0;
-
         var (basePattern, baseMask) = ParseAoB(baseAddressAob);
-        var (combatPattern, combatMask) = ParseAoB(combatAddressAoB);
-
-        while (currentAddress == 0)
+        var baseAddresses = AoBScan(proc, basePattern, baseMask);
+        if (baseAddresses.Count > 1)
         {
-            
-
-            if (combatAddress == 0)
-            {
-                var combatAddresses = AoBScan(proc, combatPattern, combatMask);
-                if (combatAddresses.Count > 0)
-                {
-                    foreach (var addr in combatAddresses)
-                    {
-                        byte[] buffer = new byte[1];
-                        if (ReadProcessMemory(proc.Handle, (IntPtr)(addr + 10), buffer, 1, out _) && buffer[0] != 0)
-                        {
-                            combat = true;
-                            currentAddress = addr + 9;
-                            combatAddress = currentAddress;
-                            break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                byte[] buffer = new byte[1];
-                if (ReadProcessMemory(proc.Handle, (IntPtr)(combatAddress-6), buffer, 1, out _) && buffer[0] != 0)
-                {
-                    combat = true;
-                    currentAddress = combatAddress;
-                    break;
-                }
-                else
-                {
-                    combatAddress = 0;
-                }
-            }
-
-            if (baseAddress == 0)
-            {
-                var baseAddresses = AoBScan(proc, basePattern, baseMask);
-                if (baseAddresses.Count > 0)
-                {
-                    foreach (var addr in baseAddresses)
-                    {
-                        byte[] buffer = new byte[1];
-                        if (ReadProcessMemory(proc.Handle, (IntPtr)(addr + 32), buffer, 1, out _) && buffer[0] != 0)
-                        {
-                            combat = false;
-                            currentAddress = addr + 32;
-                            baseAddress = currentAddress;
-                            break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                byte[] buffer = new byte[1];
-                if (ReadProcessMemory(proc.Handle, (IntPtr)baseAddress, buffer, 1, out _) && buffer[0] != 0)
-                {
-                    combat = false;
-                    currentAddress = baseAddress;
-                    break;
-                }
-                else
-                {
-                    baseAddress = 0;
-                }
-            }
-
-
-
-
-            Thread.Sleep(5000);
+            return baseAddresses[1] + 48;
         }
-
-        return currentAddress;
+        else if(baseAddresses.Count > 0)
+        {
+            return baseAddresses[0] + 48;
+        }
+        return 0;
     }
 
 
+    private static bool _running = true;
+    private static bool combatEnd = false;
+
+    private static string bufferedText = "";
+
+    private static string lastString = " ";
     static void Main(string[] args)
     {
 
@@ -249,10 +182,28 @@ class Program
 
         UInt64 baseAddress = GetCurrentAddress(proc);
 
-        Console.OutputEncoding = Encoding.UTF8;
-        string lastString = " ";
-        long startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        var scannerThread = new Thread(() =>
+        {
+            while (_running)
+            {
+                UInt64 newAddress = GetCurrentAddress(proc);
+                if (newAddress != 0 && newAddress != baseAddress && !combatEnd)
+                {
+                    bufferedText = lastString;
+                    lastAddress = baseAddress;
+                    baseAddress = newAddress;
+                    Console.WriteLine($"Updated base address: 0x{newAddress:X}");
+                }
+                Thread.Sleep(500);
+            }
+        })
+        {
+            IsBackground = true
+        };
 
+        scannerThread.Start();
+
+        Console.OutputEncoding = Encoding.UTF8;
 
 
         while (true)
@@ -273,16 +224,23 @@ class Program
 
                 text = text.Replace("븀", "\n");
                 text = text.Replace("￾", " ");
-                if (text != lastString)
+                if (text != lastString && text != bufferedText && text != "" && text != " " && text != "　")
                 {
+                    combatEnd = false;
                     lastString = text;
                     Console.WriteLine("----------------------------------");
                     Console.WriteLine(text);
                     CopyToClipboard(text);
+                    if (text.Contains("経験値を　もらった！") ||
+                       text.Contains("うまく　逃げ切れた！") || 
+                       text.Contains("に　あがった！"))
+                    {
+                        baseAddress = lastAddress;
+                        combatEnd = true;
+                        Console.WriteLine("Combat end");
+                    }
                 }
                 Thread.Sleep(500);
-
-                baseAddress = GetCurrentAddress(proc);
             }
         }
 
