@@ -231,8 +231,7 @@ class Program
                     Console.WriteLine(text);
                     CopyToClipboard(text);
                     if (text.Contains("経験値を　もらった！") ||
-                       text.Contains("うまく　逃げ切れた！") || 
-                       text.Contains("に　あがった！"))
+                       text.Contains("うまく　逃げ切れた！"))
                     {
                         baseAddress = lastAddress;
                         combatEnd = true;
