@@ -189,8 +189,6 @@ class Program
                 UInt64 newAddress = GetCurrentAddress(proc);
                 if (newAddress != 0 && newAddress != baseAddress && !combatEnd)
                 {
-                    bufferedText = lastString;
-                    lastAddress = baseAddress;
                     baseAddress = newAddress;
                 }
                 Thread.Sleep(500);
@@ -223,19 +221,13 @@ class Program
 
                 text = text.Replace("븀", "\n");
                 text = text.Replace("￾", " ");
-                if (text != lastString && text != bufferedText && text != "" && text != " " && text != "　")
+                if (text != lastString && text != "" && text != " " && text != "　" && !text.Contains("❣") && !text.Contains("�"))
                 {
                     combatEnd = false;
                     lastString = text;
                     Console.WriteLine("--------------------------------------------------------------------");
                     Console.WriteLine(text);
                     CopyToClipboard(text);
-                    if (text.Contains("経験値を　もらった！") ||
-                       text.Contains("うまく　逃げ切れた！"))
-                    {
-                        baseAddress = lastAddress;
-                        combatEnd = true;
-                    }
                 }
                 Thread.Sleep(500);
             }
