@@ -99,8 +99,8 @@ class Program
     static List<UInt64> AoBScan(Process proc, byte[] pattern, string mask)
     {
         List<UInt64> foundAddresses = new List<UInt64>();
-        UInt64 startAddress = 0x20000000000;
-        UInt64 endAddress = 0x30000000000;
+        UInt64 startAddress = 0x10000000000;
+        UInt64 endAddress = 0x40000000000;
         UInt64 currentAddress = startAddress;
 
         const int CHUNK_SIZE = 4096;
@@ -192,7 +192,6 @@ class Program
                     bufferedText = lastString;
                     lastAddress = baseAddress;
                     baseAddress = newAddress;
-                    Console.WriteLine($"Updated base address: 0x{newAddress:X}");
                 }
                 Thread.Sleep(500);
             }
@@ -228,7 +227,7 @@ class Program
                 {
                     combatEnd = false;
                     lastString = text;
-                    Console.WriteLine("----------------------------------");
+                    Console.WriteLine("--------------------------------------------------------------------");
                     Console.WriteLine(text);
                     CopyToClipboard(text);
                     if (text.Contains("経験値を　もらった！") ||
@@ -237,7 +236,6 @@ class Program
                     {
                         baseAddress = lastAddress;
                         combatEnd = true;
-                        Console.WriteLine("Combat end");
                     }
                 }
                 Thread.Sleep(500);
