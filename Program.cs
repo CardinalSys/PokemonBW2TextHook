@@ -144,7 +144,7 @@ class Program
         return foundAddresses;
     }
 
-    static string baseAddressAob = "28 ?? 00 00 ?? ?? ?? 02 ?? ?? ?? 02 ?? 00 4E 19 73 74 72 62 75 66 2E 63 00 ?? 00 ?? ?? ?? ?? ?? ?? 00 64 00 ?? ?? 00 ?? 80 ?? ?? 00 EC D2 F8 B6";
+    static string baseAddressAob = "28 ?? 00 00 ?? ?? ?? 02 ?? ?? ?? 02 ?? 00 4E 19 73 74 72 62 75 66 2E 63 00 ?? ?? ?? ?? ?? ?? ?? ?? ?? 64 00 ?? ?? ?? ?? 80 ?? ?? 00 EC D2 F8 B6";
 
     static UInt64 baseAddress;
     static UInt64 lastAddress;
@@ -156,15 +156,16 @@ class Program
     {
         var (basePattern, baseMask) = ParseAoB(baseAddressAob);
         var baseAddresses = AoBScan(proc, basePattern, baseMask);
-        if (baseAddresses.Count > 1)
-        {
-            return baseAddresses[1] + 48;
-        }
-        else if(baseAddresses.Count > 0)
+        if(baseAddresses.Count > 0)
         {
             return baseAddresses[0] + 48;
+
         }
-        return 0;
+        else
+        {
+            return 0;
+        }
+
     }
 
 
@@ -208,7 +209,6 @@ class Program
             byte[] buffer = new byte[500];
             if (ReadProcessMemory(proc.Handle, (nint)baseAddress, buffer, 500, out UIntPtr bytesRead))
             {
-                byte[] emptyBuffer = new byte[500];
 
                 string text = Encoding.GetEncoding("UTF-16LE").GetString(buffer, 0, (int)bytesRead);
 
